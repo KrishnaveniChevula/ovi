@@ -1,37 +1,402 @@
 from flask import Flask, request, jsonify, render_template_string
-import requests
-import base64
+from google import genai
 import os
+import tempfile
 
 app = Flask(__name__)
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
+# =========================================================
+# GEMINI
+# =========================================================
 
-CHAT_MODEL = "llama3.2:3b"
-VISION_MODEL = "qwen2.5vl:3b"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    print("WARNING: GEMINI_API_KEY is not set.")
+
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+MODEL = "gemini-3.8-flash"
+
+# =========================================================
+# OVI SYSTEM PROMPT
+# =========================================================
 
 SYSTEM_PROMPT = """
-You are OVI, a helpful AI assistant.
+You are OVI, a helpful AI assistant designed to help people with real-life problems.
 
-Your purpose is to help people with real-life problems.
+You can help with:
+- Education
+- Scholarships
+- Government and civic information
+- Farming
+- Technology
+- Careers
+- Internships
+- Documents
+- Scam awareness
+- General health information
+- Accessibility
+- Everyday questions
 
 Rules:
-- Give simple and practical answers.
-- Keep answers clear and easy to understand.
-- If the user speaks Telugu, reply in Telugu.
-- If the user speaks Hindi, reply in Hindi.
-- Otherwise reply in English.
-- Be friendly and respectful.
-- If an image is provided, carefully understand it and explain what is visible.
-- If a document is provided, answer using the document content.
+1. Understand the user's problem first.
+2. Give simple and practical answers.
+3. If the user speaks Telugu, reply in Telugu.
+4. If the user speaks Hindi, reply in Hindi.
+5. If the user speaks English, reply in English.
+6. Do not pretend to be a doctor, lawyer, or government officer.
+7. For important information, tell the user to verify with an official source.
+8. Never invent official information.
+9. Be friendly and concise.
+10. Give step-by-step instructions when useful.
 """
 
-HTML = """
+# =========================================================
+# GEMINI TEXT
+# =========================================================
+
+def ask_gemini(prompt, uploaded_file=None):
+    if not client:
+        raise Exception("GEMINI_API_KEY is not configured.")
+
+    if uploaded_file:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=[
+                SYSTEM_PROMPT,
+                prompt,
+                uploaded_file
+            ]
+        )
+    else:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=[
+                SYSTEM_PROMPT,
+                prompt
+            ]
+        )
+
+    return (response.text or "").strip()
+
+
+# =========================================================
+# HOME
+# =========================================================
+
+@app.route("/")
+def home():
+    return render_template_string(HTML)
+
+
+# =========================================================
+# CHAT
+# =========================================================
+
+@app.route("/chat", methods=["POST"])
+def chat():
+
+    try:
+        data = request.get_json() or {}
+
+        message = data.get("message", "").strip()
+
+        if not message:
+            return jsonify({
+                "success": False,
+                "error": "Please enter a message."
+            })
+
+        answer = ask_gemini(message)
+
+        return jsonify({
+            "success": True,
+            "response": answer
+        })
+
+    except Exception as e:
+
+        print("CHAT ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+
+# =========================================================
+# VOICE
+# =========================================================
+
+@app.route("/voice", methods=["POST"])
+def voice():
+
+    temp_path = None
+
+    try:
+
+        if "audio" not in request.files:
+            return jsonify({
+                "success": False,
+                "error": "No audio received."
+            })
+
+        audio = request.files["audio"]
+
+        if not audio.filename:
+            return jsonify({
+                "success": False,
+                "error": "No audio file."
+            })
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".webm"
+        ) as temp_file:
+
+            temp_path = temp_file.name
+            audio.save(temp_path)
+
+        uploaded = client.files.upload(
+            file=temp_path
+        )
+
+        answer = ask_gemini(
+            """
+Listen to this audio and transcribe exactly what the user said.
+
+Return ONLY the transcription.
+Do not explain it.
+Do not answer the question.
+""",
+            uploaded
+        )
+
+        return jsonify({
+            "success": True,
+            "text": answer
+        })
+
+    except Exception as e:
+
+        print("VOICE ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+    finally:
+
+        if temp_path:
+
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+# =========================================================
+# FILE UPLOAD
+# =========================================================
+
+@app.route("/upload", methods=["POST"])
+def upload():
+
+    temp_path = None
+
+    try:
+
+        if "file" not in request.files:
+            return jsonify({
+                "success": False,
+                "error": "No file selected."
+            })
+
+        file = request.files["file"]
+
+        if not file.filename:
+            return jsonify({
+                "success": False,
+                "error": "No file selected."
+            })
+
+        filename = file.filename
+
+        extension = os.path.splitext(
+            filename
+        )[1].lower()
+
+        # =================================================
+        # IMAGE
+        # =================================================
+
+        if extension in [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+        ]:
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=extension
+            ) as temp_file:
+
+                temp_path = temp_file.name
+                file.save(temp_path)
+
+            uploaded = client.files.upload(
+                file=temp_path
+            )
+
+            answer = ask_gemini(
+                """
+Analyze this uploaded image.
+
+If it contains text, read the important information.
+
+If it is a document, explain the important information.
+
+If it contains something the user may need help understanding,
+explain it clearly.
+
+If something is unclear, say that instead of guessing.
+""",
+                uploaded
+            )
+
+            return jsonify({
+                "success": True,
+                "filename": filename,
+                "response": answer
+            })
+
+
+        # =================================================
+        # PDF
+        # =================================================
+
+        if extension == ".pdf":
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".pdf"
+            ) as temp_file:
+
+                temp_path = temp_file.name
+                file.save(temp_path)
+
+            uploaded = client.files.upload(
+                file=temp_path
+            )
+
+            answer = ask_gemini(
+                """
+Analyze this PDF document.
+
+Explain the important information clearly.
+
+If useful, provide:
+- Summary
+- Important points
+- Dates
+- Requirements
+- Instructions
+- Actions the user should take
+
+Do not invent information that is not present in the document.
+""",
+                uploaded
+            )
+
+            return jsonify({
+                "success": True,
+                "filename": filename,
+                "response": answer
+            })
+
+
+        # =================================================
+        # TEXT FILES
+        # =================================================
+
+        if extension in [
+            ".txt",
+            ".md",
+            ".csv"
+        ]:
+
+            content = file.read().decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+            content = content[:50000]
+
+            answer = ask_gemini(
+                f"""
+The user uploaded this file:
+
+Filename:
+{filename}
+
+File content:
+{content}
+
+Explain the important information clearly.
+"""
+            )
+
+            return jsonify({
+                "success": True,
+                "filename": filename,
+                "response": answer
+            })
+
+
+        return jsonify({
+            "success": False,
+            "error": "This file type is not supported."
+        })
+
+    except Exception as e:
+
+        print("UPLOAD ERROR:", e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+    finally:
+
+        if temp_path:
+
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+# =========================================================
+# HTML
+# =========================================================
+
+HTML = r"""
 <!DOCTYPE html>
 <html>
+
 <head>
 
-<title>OVI - AI Assistant</title>
+<meta charset="UTF-8">
+
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>OVI</title>
 
 <style>
 
@@ -42,53 +407,43 @@ HTML = """
 :root {
     --bg: #ffffff;
     --sidebar: #f7f7f8;
-    --text: #111111;
-    --secondary: #777777;
+    --text: #171717;
+    --muted: #777;
     --border: #e5e5e5;
+    --hover: #eeeeee;
     --bubble: #f1f1f1;
-    --user: #111111;
-    --userText: #ffffff;
-    --input: #ffffff;
-    --hover: #e9e9ea;
     --accent: #111111;
 }
 
 body.dark {
-    --bg: #18181b;
-    --sidebar: #202023;
+    --bg: #181818;
+    --sidebar: #202020;
     --text: #f5f5f5;
-    --secondary: #aaaaaa;
-    --border: #353539;
-    --bubble: #29292e;
-    --user: #f5f5f5;
-    --userText: #111111;
-    --input: #242428;
-    --hover: #303035;
+    --muted: #aaa;
+    --border: #333;
+    --hover: #2c2c2c;
+    --bubble: #292929;
     --accent: #ffffff;
 }
 
 body.purple {
     --bg: #faf8ff;
     --sidebar: #f1edff;
-    --text: #181225;
-    --secondary: #756b88;
-    --border: #ddd4f5;
-    --bubble: #eee8ff;
-    --user: #6d4aff;
-    --userText: #ffffff;
-    --input: #ffffff;
-    --hover: #e6ddff;
+    --text: #201735;
+    --muted: #776b91;
+    --border: #ddd4f4;
+    --hover: #e9e2fa;
+    --bubble: #eee8fb;
     --accent: #6d4aff;
 }
 
 body {
     margin: 0;
+    height: 100vh;
+    overflow: hidden;
     font-family: Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
-    height: 100vh;
-    overflow: hidden;
-    transition: background 0.2s, color 0.2s;
 }
 
 .app {
@@ -96,13 +451,11 @@ body {
     height: 100vh;
 }
 
-/* SIDEBAR */
-
 .sidebar {
-    width: 270px;
+    width: 260px;
     background: var(--sidebar);
     border-right: 1px solid var(--border);
-    padding: 18px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
 }
@@ -111,85 +464,42 @@ body {
     font-size: 25px;
     font-weight: bold;
     margin-bottom: 20px;
-    padding-left: 5px;
 }
 
 .new-chat {
-    border: 1px solid var(--border);
-    background: var(--input);
-    color: var(--text);
-    border-radius: 10px;
+    width: 100%;
     padding: 11px;
-    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
     cursor: pointer;
-    margin-bottom: 25px;
-}
-
-.new-chat:hover {
-    background: var(--hover);
 }
 
 .history-title {
-    font-size: 12px;
-    color: var(--secondary);
-    font-weight: bold;
-    margin: 0 5px 10px;
+    margin-top: 20px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--muted);
 }
 
 .history {
     overflow-y: auto;
-    flex: 1;
 }
 
 .history-item {
-    position: relative;
-    padding: 10px 12px;
+    padding: 10px;
     border-radius: 8px;
     cursor: pointer;
     font-size: 14px;
-    margin-bottom: 4px;
-    user-select: none;
-}
-
-.history-item:hover {
-    background: var(--hover);
-}
-
-.history-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* DELETE */
-
-.delete-menu {
-    display: none;
-    position: absolute;
-    left: 10px;
-    top: 38px;
-    background: var(--input);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-    z-index: 100;
-    overflow: hidden;
-}
-
-.delete-menu button {
-    border: none;
-    background: var(--input);
-    padding: 9px 15px;
-    cursor: pointer;
-    font-size: 13px;
-    color: #d11a2a;
-}
-
-.delete-menu button:hover {
+.history-item:hover {
     background: var(--hover);
 }
-
-/* MAIN */
 
 .main {
     flex: 1;
@@ -204,15 +514,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 22px;
+    padding: 0 18px;
 }
 
 .top-title {
-    font-size: 17px;
-    font-weight: 600;
+    font-weight: bold;
 }
 
-.settings {
+.settings-button {
     border: none;
     background: transparent;
     color: var(--text);
@@ -220,190 +529,173 @@ body {
     cursor: pointer;
 }
 
-/* CHAT */
-
-.chat-area {
+.chat {
     flex: 1;
     overflow-y: auto;
-    padding: 35px 10%;
+    padding: 25px;
 }
 
 .welcome {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
     text-align: center;
+    margin-top: 18vh;
 }
 
 .welcome h1 {
-    font-size: 30px;
-    margin-bottom: 8px;
+    font-size: 34px;
 }
 
 .welcome p {
-    color: var(--secondary);
+    color: var(--muted);
 }
 
 .message-row {
     display: flex;
     margin-bottom: 18px;
-    width: 100%;
 }
 
-.user-row {
+.message-row.user {
     justify-content: flex-end;
 }
 
-.bot-row {
+.message-row.ovi {
     justify-content: flex-start;
 }
 
 .message {
-    max-width: 70%;
+    max-width: 75%;
     padding: 11px 15px;
     border-radius: 15px;
-    font-size: 15px;
     line-height: 1.5;
     white-space: pre-wrap;
-    word-wrap: break-word;
 }
 
-.message.user {
-    background: var(--user);
-    color: var(--userText);
-    border-bottom-right-radius: 4px;
+.user .message {
+    background: var(--accent);
+    color: var(--bg);
+    border-bottom-right-radius: 5px;
 }
 
-.message.bot {
+.ovi .message {
     background: var(--bubble);
-    color: var(--text);
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: 5px;
 }
-
-/* IMAGE */
-
-.chat-image {
-    max-width: 300px;
-    max-height: 300px;
-    border-radius: 12px;
-    display: block;
-    margin-bottom: 8px;
-}
-
-/* THINKING */
 
 .thinking {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 12px 15px;
-    background: var(--bubble);
-    border-radius: 15px;
-    border-bottom-left-radius: 4px;
-    width: fit-content;
+    gap: 5px;
 }
 
-.thinking span {
+.dot {
     width: 6px;
     height: 6px;
-    background: var(--secondary);
+    background: var(--muted);
     border-radius: 50%;
-    display: block;
-    animation: thinking 1.2s infinite;
+    animation: blink 1s infinite;
 }
 
-.thinking span:nth-child(2) {
+.dot:nth-child(2) {
     animation-delay: .2s;
 }
 
-.thinking span:nth-child(3) {
+.dot:nth-child(3) {
     animation-delay: .4s;
 }
 
-@keyframes thinking {
-
-    0%,60%,100% {
-        opacity: .3;
-        transform: translateY(0);
+@keyframes blink {
+    0%,100% {
+        opacity: .2;
     }
 
-    30% {
+    50% {
         opacity: 1;
-        transform: translateY(-3px);
     }
 }
 
-/* INPUT */
-
 .input-area {
-    padding: 15px 10% 20px;
-    border-top: 1px solid var(--border);
+    padding: 12px 20px 18px;
 }
 
 .input-box {
+    max-width: 900px;
+    margin: auto;
+    border: 1px solid var(--border);
+    border-radius: 18px;
     display: flex;
     align-items: flex-end;
-    border: 1px solid var(--border);
-    border-radius: 15px;
-    padding: 8px 10px;
-    background: var(--input);
+    padding: 7px;
 }
 
 textarea {
     flex: 1;
+    resize: none;
     border: none;
     outline: none;
-    resize: none;
-    font-family: Arial;
+    background: transparent;
+    color: var(--text);
+    padding: 10px;
+    font-family: inherit;
     font-size: 15px;
-    min-height: 35px;
-    max-height: 120px;
-    padding: 8px;
-    background: transparent;
-    color: var(--text);
 }
 
-textarea::placeholder {
-    color: var(--secondary);
-}
-
-/* ATTACH */
-
-.attach {
-    position: relative;
-}
-
-.attach-button {
-    border: none;
-    background: transparent;
-    color: var(--text);
-    font-size: 21px;
+.action-button,
+.voice-button {
     width: 38px;
     height: 38px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text);
     cursor: pointer;
+    font-size: 18px;
+}
+
+.action-button:hover,
+.voice-button:hover {
+    background: var(--hover);
+}
+
+.voice-button.recording {
+    background: #e53935;
+    color: white;
+}
+
+.send {
+    width: 38px;
+    height: 38px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg);
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.preview {
+    max-width: 900px;
+    margin: auto;
+    padding: 5px;
+    color: var(--muted);
+    font-size: 13px;
+    display: none;
 }
 
 .attach-menu {
+    position: fixed;
+    bottom: 75px;
+    left: 20px;
     display: none;
-    position: absolute;
-    bottom: 48px;
-    left: 0;
-    background: var(--input);
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 12px;
-    box-shadow: 0 5px 20px rgba(0,0,0,.15);
-    overflow: hidden;
-    z-index: 200;
+    padding: 6px;
 }
 
 .attach-menu button {
     display: block;
-    width: 180px;
-    padding: 12px;
+    width: 150px;
+    padding: 10px;
     border: none;
-    background: var(--input);
+    background: transparent;
     color: var(--text);
     text-align: left;
     cursor: pointer;
@@ -413,130 +705,46 @@ textarea::placeholder {
     background: var(--hover);
 }
 
-/* PREVIEW */
-
-.preview {
-    display: none;
-    margin-bottom: 8px;
-    position: relative;
-}
-
-.preview img {
-    width: 80px;
-    height: 80px;
-    object-fit: cover;
-    border-radius: 10px;
-}
-
-.remove-file {
-    position: absolute;
-    top: -5px;
-    left: 70px;
-    border: none;
-    background: #222;
-    color: white;
-    border-radius: 50%;
-    width: 22px;
-    height: 22px;
-    cursor: pointer;
-}
-
-/* SEND */
-
-.send {
-    border: none;
-    background: var(--accent);
-    color: var(--userText);
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 17px;
-}
-
-.send:disabled {
-    opacity: .5;
-}
-
-/* MODAL */
-
 .modal {
-    display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.4);
+    background: rgba(0,0,0,.45);
+    display: none;
     align-items: center;
     justify-content: center;
-    z-index: 500;
 }
 
 .modal-box {
-    width: 360px;
-    background: var(--input);
-    color: var(--text);
-    border-radius: 15px;
-    padding: 25px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    background: var(--bg);
+    padding: 22px;
+    width: 320px;
+    border-radius: 16px;
 }
 
-.close {
-    float: right;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    font-size: 22px;
-    cursor: pointer;
-}
-
-.theme-title {
-    margin-top: 25px;
-    font-size: 14px;
-    font-weight: bold;
-}
-
-.theme-buttons {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.theme-buttons button {
-    flex: 1;
+.theme-button,
+.close-modal {
+    width: 100%;
+    padding: 10px;
+    margin-top: 7px;
     border: 1px solid var(--border);
-    background: var(--input);
-    color: var(--text);
-    padding: 10px 5px;
     border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
     cursor: pointer;
 }
-
-.theme-buttons button:hover {
-    background: var(--hover);
-}
-
-/* MOBILE */
 
 @media(max-width:700px) {
 
     .sidebar {
-        width: 210px;
-        padding: 12px;
+        display: none;
     }
 
-    .chat-area {
-        padding: 25px 15px;
-    }
-
-    .input-area {
-        padding: 10px 15px 15px;
+    .chat {
+        padding: 15px;
     }
 
     .message {
-        max-width: 85%;
-    }
-
-    .welcome h1 {
-        font-size: 24px;
+        max-width: 88%;
     }
 }
 
@@ -550,115 +758,83 @@ textarea::placeholder {
 
 <aside class="sidebar">
 
-    <div class="logo">
-        OVI
-    </div>
+<div class="logo">
+OVI
+</div>
 
-    <button class="new-chat" onclick="newChat()">
-        + New Chat
-    </button>
+<button class="new-chat" onclick="newChat()">
++ New Chat
+</button>
 
-    <div class="history-title">
-        CHAT HISTORY
-    </div>
+<div class="history-title">
+CHAT HISTORY
+</div>
 
-    <div class="history" id="historyList"></div>
+<div class="history" id="history"></div>
 
 </aside>
-
 
 <main class="main">
 
 <div class="topbar">
 
-    <div class="top-title">
-        OVI
-    </div>
+<div class="top-title">
+OVI
+</div>
 
-    <button class="settings" onclick="openSettings()">
-        ⚙️
-    </button>
+<button class="settings-button" onclick="openSettings()">
+⚙
+</button>
 
 </div>
 
+<div class="chat" id="chat">
 
-<div class="chat-area" id="chatBox">
+<div class="welcome" id="welcome">
 
-    <div class="welcome" id="welcome">
+<h1>
+Hi, I'm OVI
+</h1>
 
-        <h1>Hello! I'm OVI 👋</h1>
-
-        <p>
-            AI that helps with real life.
-        </p>
-
-    </div>
+<p>
+AI that helps with real life.
+</p>
 
 </div>
 
+</div>
 
 <div class="input-area">
 
-    <div id="preview" class="preview">
+<div class="preview" id="preview"></div>
 
-        <img id="previewImage">
+<div class="input-box">
 
-        <button
-            class="remove-file"
-            onclick="removeAttachment()">
-            ×
-        </button>
+<button class="action-button" onclick="toggleAttach()">
++
+</button>
 
-    </div>
+<textarea
+id="messageInput"
+placeholder="Message OVI..."
+rows="1"
+onkeydown="handleKey(event)">
+</textarea>
 
+<button
+class="voice-button"
+id="voiceButton"
+onclick="toggleVoice()">
+🎤
+</button>
 
-    <div class="input-box">
+<button
+class="send"
+onclick="sendMessage()">
+➤
+</button>
 
-        <div class="attach">
-
-            <button
-                class="attach-button"
-                onclick="toggleAttachMenu()">
-                +
-            </button>
-
-            <div
-                class="attach-menu"
-                id="attachMenu">
-
-                <button onclick="openCamera()">
-                    📷 Camera
-                </button>
-
-                <button onclick="openPhoto()">
-                    🖼️ Photo
-                </button>
-
-                <button onclick="openFile()">
-                    📎 File
-                </button>
-
-            </div>
-
-        </div>
-
-
-        <textarea
-            id="messageInput"
-            placeholder="Message OVI..."
-            rows="1"
-            onkeydown="handleKey(event)">
-        </textarea>
-
-
-        <button
-            class="send"
-            id="sendButton"
-            onclick="sendMessage()">
-            ➤
-        </button>
-
-    </div>
+</div>
 
 </div>
 
@@ -666,588 +842,593 @@ textarea::placeholder {
 
 </div>
 
+<div class="attach-menu" id="attachMenu">
 
-<!-- CAMERA -->
+<button onclick="choosePhoto()">
+🖼️ Photo
+</button>
 
-<input
-    type="file"
-    id="cameraInput"
-    accept="image/*"
-    capture="environment"
-    style="display:none"
-    onchange="handleFile(this.files[0])">
+<button onclick="chooseCamera()">
+📷 Camera
+</button>
 
+<button onclick="chooseFile()">
+📄 File
+</button>
 
-<!-- PHOTO -->
-
-<input
-    type="file"
-    id="photoInput"
-    accept="image/*"
-    style="display:none"
-    onchange="handleFile(this.files[0])">
-
-
-<!-- FILE -->
+</div>
 
 <input
-    type="file"
-    id="fileInput"
-    accept=".pdf,.txt,.md,.doc,.docx"
-    style="display:none"
-    onchange="handleFile(this.files[0])">
+type="file"
+id="fileInput"
+hidden
+accept=".txt,.md,.csv,.pdf">
 
+<input
+type="file"
+id="imageInput"
+hidden
+accept="image/*">
 
-<!-- SETTINGS -->
+<input
+type="file"
+id="cameraInput"
+hidden
+accept="image/*"
+capture="environment">
 
 <div class="modal" id="settingsModal">
 
 <div class="modal-box">
 
-<button class="close" onclick="closeSettings()">
-×
+<h2>
+Settings
+</h2>
+
+<button class="theme-button" onclick="setTheme('light')">
+☀ Light
 </button>
 
-<h2>Settings</h2>
-
-<p>
-OVI is your AI assistant for real-life problems.
-</p>
-
-<div class="theme-title">
-Theme
-</div>
-
-<div class="theme-buttons">
-
-<button onclick="setTheme('light')">
-☀️ Light
-</button>
-
-<button onclick="setTheme('dark')">
+<button class="theme-button" onclick="setTheme('dark')">
 🌙 Dark
 </button>
 
-<button onclick="setTheme('purple')">
+<button class="theme-button" onclick="setTheme('purple')">
 💜 Purple
+</button>
+
+<button class="close-modal" onclick="closeSettings()">
+Close
 </button>
 
 </div>
 
 </div>
 
-</div>
-
-
 <script>
-
-let chats =
-    JSON.parse(localStorage.getItem("oviChats")) || [];
-
-let currentChatId = null;
-
-let longPressTimer = null;
 
 let selectedFile = null;
 
+let mediaRecorder = null;
 
-/* THEME */
+let audioChunks = [];
 
-function setTheme(theme) {
+let isRecording = false;
 
-    document.body.classList.remove(
-        "dark",
-        "purple"
-    );
+let conversations =
+JSON.parse(
+localStorage.getItem("oviHistory") || "[]"
+);
 
-    if (theme === "dark") {
+let currentMessages = [];
 
-        document.body.classList.add("dark");
 
-    }
+// =========================================================
+// HISTORY
+// =========================================================
 
-    if (theme === "purple") {
-
-        document.body.classList.add("purple");
-
-    }
+function saveHistory() {
 
     localStorage.setItem(
-        "oviTheme",
-        theme
+        "oviHistory",
+        JSON.stringify(conversations)
     );
-
-}
-
-
-const savedTheme =
-    localStorage.getItem("oviTheme") || "light";
-
-setTheme(savedTheme);
-
-
-/* CHAT STORAGE */
-
-function saveChats() {
-
-    localStorage.setItem(
-        "oviChats",
-        JSON.stringify(chats)
-    );
-
-}
-
-
-/* CREATE CHAT */
-
-function createChat() {
-
-    const chat = {
-
-        id: Date.now(),
-
-        title: "New Chat",
-
-        messages: []
-
-    };
-
-    chats.unshift(chat);
-
-    currentChatId = chat.id;
-
-    saveChats();
 
     renderHistory();
-
 }
-
-
-/* HISTORY */
 
 function renderHistory() {
 
-    const historyList =
-        document.getElementById(
-            "historyList"
-        );
+    const history =
+        document.getElementById("history");
 
-    historyList.innerHTML = "";
+    history.innerHTML = "";
 
+    conversations.forEach(
+        (conversation, index) => {
 
-    chats.forEach(chat => {
+            const item =
+                document.createElement("div");
 
-        const item =
-            document.createElement("div");
+            item.className = "history-item";
 
-        item.className =
-            "history-item";
+            item.textContent =
+                conversation.title;
 
+            item.onclick =
+                function() {
+                    loadConversation(index);
+                };
 
-        const name =
-            document.createElement("div");
+            item.oncontextmenu =
+                function(event) {
 
-        name.className =
-            "history-name";
+                    event.preventDefault();
 
-        name.textContent =
-            chat.title;
+                    if(confirm("Delete this chat?")) {
 
+                        conversations.splice(index, 1);
 
-        const menu =
-            document.createElement("div");
+                        saveHistory();
 
-        menu.className =
-            "delete-menu";
+                        newChat();
+                    }
+                };
 
-
-        const deleteButton =
-            document.createElement("button");
-
-        deleteButton.textContent =
-            "Delete";
-
-
-        deleteButton.onclick =
-            function(event) {
-
-                event.stopPropagation();
-
-                deleteChat(chat.id);
-
-            };
-
-
-        menu.appendChild(deleteButton);
-
-        item.appendChild(name);
-
-        item.appendChild(menu);
-
-
-        item.onclick =
-            function() {
-
-                closeAllMenus();
-
-                openChat(chat.id);
-
-            };
-
-
-        item.oncontextmenu =
-            function(event) {
-
-                event.preventDefault();
-
-                closeAllMenus();
-
-                menu.style.display =
-                    "block";
-
-            };
-
-
-        item.addEventListener(
-            "touchstart",
-            function() {
-
-                longPressTimer =
-                    setTimeout(
-                        function() {
-
-                            closeAllMenus();
-
-                            menu.style.display =
-                                "block";
-
-                        },
-                        600
-                    );
-
-            }
-        );
-
-
-        item.addEventListener(
-            "touchend",
-            function() {
-
-                clearTimeout(
-                    longPressTimer
-                );
-
-            }
-        );
-
-
-        item.addEventListener(
-            "touchmove",
-            function() {
-
-                clearTimeout(
-                    longPressTimer
-                );
-
-            }
-        );
-
-
-        historyList.appendChild(item);
-
-    });
-
+            history.appendChild(item);
+        }
+    );
 }
 
+function loadConversation(index) {
 
-/* OPEN CHAT */
-
-function openChat(id) {
+    currentMessages =
+        conversations[index].messages || [];
 
     const chat =
-        chats.find(
-            c => c.id === id
-        );
+        document.getElementById("chat");
 
-    if (!chat) return;
+    chat.innerHTML = "";
 
-    currentChatId = id;
+    currentMessages.forEach(
+        message => {
 
-    const chatBox =
-        document.getElementById(
-            "chatBox"
-        );
+            addMessage(
+                message.text,
+                message.sender,
+                false
+            );
 
-    chatBox.innerHTML = "";
+        }
+    );
+}
 
+function saveCurrentChat() {
 
-    if (chat.messages.length === 0) {
-
-        showWelcome();
-
+    if(!currentMessages.length) {
         return;
-
     }
 
-
-    chat.messages.forEach(message => {
-
-        addMessage(
-            message.text,
-            message.type,
-            message.image
+    const firstUser =
+        currentMessages.find(
+            m => m.sender === "user"
         );
 
+    const title =
+        firstUser
+        ? firstUser.text.substring(0,35)
+        : "New Chat";
+
+    conversations.unshift({
+        title: title,
+        messages: currentMessages
     });
 
-}
-
-
-/* DELETE */
-
-function deleteChat(id) {
-
-    chats =
-        chats.filter(
-            chat => chat.id !== id
-        );
-
-    saveChats();
-
-    renderHistory();
-
-
-    if (currentChatId === id) {
-
-        currentChatId = null;
-
-        showWelcome();
-
+    if(conversations.length > 30) {
+        conversations.pop();
     }
 
+    saveHistory();
 }
 
 
-/* WELCOME */
+// =========================================================
+// NEW CHAT
+// =========================================================
 
-function showWelcome() {
+function newChat() {
 
-    document.getElementById(
-        "chatBox"
-    ).innerHTML = `
+    currentMessages = [];
+
+    document.getElementById("chat").innerHTML = `
 
         <div class="welcome" id="welcome">
 
-            <h1>Hello! I'm OVI 👋</h1>
+            <h1>Hi, I'm OVI</h1>
 
-            <p>
-                AI that helps with real life.
-            </p>
+            <p>AI that helps with real life.</p>
+
+        </div>
+
+    `;
+}
+
+
+// =========================================================
+// MESSAGE
+// =========================================================
+
+function addMessage(
+    text,
+    sender,
+    save = true
+) {
+
+    const welcome =
+        document.getElementById("welcome");
+
+    if(welcome) {
+        welcome.remove();
+    }
+
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "message-row " + sender;
+
+    const bubble =
+        document.createElement("div");
+
+    bubble.className = "message";
+
+    bubble.textContent = text;
+
+    row.appendChild(bubble);
+
+    document
+        .getElementById("chat")
+        .appendChild(row);
+
+    const chat =
+        document.getElementById("chat");
+
+    chat.scrollTop =
+        chat.scrollHeight;
+
+    if(save) {
+
+        currentMessages.push({
+            sender: sender,
+            text: text
+        });
+
+    }
+}
+
+
+// =========================================================
+// THINKING
+// =========================================================
+
+function showThinking() {
+
+    const row =
+        document.createElement("div");
+
+    row.id = "thinking";
+
+    row.className =
+        "message-row ovi";
+
+    row.innerHTML = `
+
+        <div class="message thinking">
+
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
 
         </div>
 
     `;
 
+    document
+        .getElementById("chat")
+        .appendChild(row);
 }
-
-
-/* ADD MESSAGE */
-
-function addMessage(
-    text,
-    type,
-    image = null
-) {
-
-    const chatBox =
-        document.getElementById(
-            "chatBox"
-        );
-
-
-    const welcome =
-        document.getElementById(
-            "welcome"
-        );
-
-    if (welcome) {
-
-        welcome.remove();
-
-    }
-
-
-    const row =
-        document.createElement("div");
-
-    row.className =
-        type === "user"
-        ? "message-row user-row"
-        : "message-row bot-row";
-
-
-    const bubble =
-        document.createElement("div");
-
-    bubble.className =
-        "message " + type;
-
-
-    if (image) {
-
-        const img =
-            document.createElement("img");
-
-        img.src = image;
-
-        img.className =
-            "chat-image";
-
-        bubble.appendChild(img);
-
-    }
-
-
-    if (text) {
-
-        const textNode =
-            document.createElement("div");
-
-        textNode.textContent =
-            text;
-
-        bubble.appendChild(textNode);
-
-    }
-
-
-    row.appendChild(bubble);
-
-    chatBox.appendChild(row);
-
-    chatBox.scrollTop =
-        chatBox.scrollHeight;
-
-}
-
-
-/* THINKING */
-
-function showThinking() {
-
-    const chatBox =
-        document.getElementById(
-            "chatBox"
-        );
-
-
-    const row =
-        document.createElement("div");
-
-    row.className =
-        "message-row bot-row";
-
-    row.id =
-        "thinkingRow";
-
-
-    const bubble =
-        document.createElement("div");
-
-    bubble.className =
-        "thinking";
-
-
-    bubble.innerHTML = `
-        <span></span>
-        <span></span>
-        <span></span>
-    `;
-
-
-    row.appendChild(bubble);
-
-    chatBox.appendChild(row);
-
-    chatBox.scrollTop =
-        chatBox.scrollHeight;
-
-}
-
 
 function removeThinking() {
 
-    const thinking =
-        document.getElementById(
-            "thinkingRow"
-        );
+    const element =
+        document.getElementById("thinking");
 
-    if (thinking) {
-
-        thinking.remove();
-
+    if(element) {
+        element.remove();
     }
-
 }
 
 
-/* SAVE MESSAGE */
+// =========================================================
+// CHAT
+// =========================================================
 
-function saveMessage(
-    text,
-    type,
-    image = null
-) {
+async function sendMessage() {
 
-    if (!currentChatId) {
+    const input =
+        document.getElementById("messageInput");
 
-        createChat();
+    const message =
+        input.value.trim();
+
+    if(!message && !selectedFile) {
+        return;
+    }
+
+    if(message) {
+
+        addMessage(
+            message,
+            "user"
+        );
 
     }
 
+    input.value = "";
 
-    const chat =
-        chats.find(
-            c => c.id === currentChatId
+    if(selectedFile) {
+
+        await uploadFile();
+
+        selectedFile = null;
+
+        document.getElementById(
+            "preview"
+        ).style.display = "none";
+
+        return;
+    }
+
+    showThinking();
+
+    try {
+
+        const response =
+            await fetch(
+                "/chat",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+                            message: message
+                        })
+                }
+            );
+
+        const data =
+            await response.json();
+
+        removeThinking();
+
+        if(data.success) {
+
+            addMessage(
+                data.response,
+                "ovi"
+            );
+
+        } else {
+
+            addMessage(
+                "Error: " + data.error,
+                "ovi"
+            );
+
+        }
+
+    } catch(error) {
+
+        removeThinking();
+
+        addMessage(
+            "Could not connect to OVI.",
+            "ovi"
         );
+    }
 
-    if (!chat) return;
-
-
-    chat.messages.push({
-
-        text: text,
-
-        type: type,
-
-        image: image
-
-    });
-
-
-    if (
-        type === "user" &&
-        chat.title === "New Chat"
+    if(
+        currentMessages.length > 0 &&
+        currentMessages.length <= 2
     ) {
 
-        chat.title =
-            text
-                ? text.substring(0, 30)
-                : "Image Chat";
+        saveCurrentChat();
 
+        currentMessages = [];
     }
-
-
-    saveChats();
-
-    renderHistory();
-
 }
 
 
-/* ATTACH MENU */
+// =========================================================
+// VOICE
+// =========================================================
 
-function toggleAttachMenu() {
+async function toggleVoice() {
+
+    if(isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+async function startRecording() {
+
+    try {
+
+        const stream =
+            await navigator.mediaDevices.getUserMedia({
+                audio: true
+            });
+
+        audioChunks = [];
+
+        mediaRecorder =
+            new MediaRecorder(stream);
+
+        mediaRecorder.ondataavailable =
+            function(event) {
+
+                if(event.data.size > 0) {
+
+                    audioChunks.push(
+                        event.data
+                    );
+
+                }
+            };
+
+        mediaRecorder.onstop =
+            async function() {
+
+                stream
+                    .getTracks()
+                    .forEach(
+                        track =>
+                            track.stop()
+                    );
+
+                const audioBlob =
+                    new Blob(
+                        audioChunks,
+                        {
+                            type: "audio/webm"
+                        }
+                    );
+
+                await sendAudio(audioBlob);
+            };
+
+        mediaRecorder.start();
+
+        isRecording = true;
+
+        const button =
+            document.getElementById(
+                "voiceButton"
+            );
+
+        button.classList.add("recording");
+
+        button.textContent = "⏹️";
+
+    } catch(error) {
+
+        alert(
+            "Microphone permission is required for OVI voice input."
+        );
+
+        console.log(error);
+    }
+}
+
+function stopRecording() {
+
+    if(
+        mediaRecorder &&
+        mediaRecorder.state !== "inactive"
+    ) {
+
+        mediaRecorder.stop();
+    }
+
+    isRecording = false;
+
+    const button =
+        document.getElementById(
+            "voiceButton"
+        );
+
+    button.classList.remove("recording");
+
+    button.textContent = "🎤";
+}
+
+async function sendAudio(audioBlob) {
+
+    const button =
+        document.getElementById(
+            "voiceButton"
+        );
+
+    button.textContent = "⏳";
+
+    const formData =
+        new FormData();
+
+    formData.append(
+        "audio",
+        audioBlob,
+        "voice.webm"
+    );
+
+    try {
+
+        const response =
+            await fetch(
+                "/voice",
+                {
+                    method: "POST",
+                    body: formData
+                }
+            );
+
+        const data =
+            await response.json();
+
+        if(data.success) {
+
+            const input =
+                document.getElementById(
+                    "messageInput"
+                );
+
+            input.value =
+                data.text;
+
+            input.focus();
+
+        } else {
+
+            alert(
+                "Voice error: " +
+                data.error
+            );
+        }
+
+    } catch(error) {
+
+        alert(
+            "Could not process your voice."
+        );
+
+        console.log(error);
+    }
+
+    button.textContent = "🎤";
+}
+
+
+// =========================================================
+// ATTACHMENTS
+// =========================================================
+
+function toggleAttach() {
 
     const menu =
         document.getElementById(
@@ -1258,341 +1439,169 @@ function toggleAttachMenu() {
         menu.style.display === "block"
         ? "none"
         : "block";
-
 }
 
-
-/* CAMERA */
-
-function openCamera() {
-
-    document.getElementById(
-        "attachMenu"
-    ).style.display = "none";
-
-    document.getElementById(
-        "cameraInput"
-    ).click();
-
-}
-
-
-/* PHOTO */
-
-function openPhoto() {
-
-    document.getElementById(
-        "attachMenu"
-    ).style.display = "none";
-
-    document.getElementById(
-        "photoInput"
-    ).click();
-
-}
-
-
-/* FILE */
-
-function openFile() {
-
-    document.getElementById(
-        "attachMenu"
-    ).style.display = "none";
+function chooseFile() {
 
     document.getElementById(
         "fileInput"
     ).click();
 
+    toggleAttach();
 }
 
-
-/* FILE SELECTED */
-
-function handleFile(file) {
-
-    if (!file) return;
-
-    selectedFile = file;
-
-
-    if (
-        file.type.startsWith("image/")
-    ) {
-
-        const reader =
-            new FileReader();
-
-
-        reader.onload =
-            function(event) {
-
-                document.getElementById(
-                    "previewImage"
-                ).src =
-                    event.target.result;
-
-                document.getElementById(
-                    "preview"
-                ).style.display =
-                    "block";
-
-            };
-
-
-        reader.readAsDataURL(file);
-
-    }
-
-}
-
-
-/* REMOVE FILE */
-
-function removeAttachment() {
-
-    selectedFile = null;
+function choosePhoto() {
 
     document.getElementById(
-        "preview"
-    ).style.display =
-        "none";
+        "imageInput"
+    ).click();
+
+    toggleAttach();
+}
+
+function chooseCamera() {
 
     document.getElementById(
-        "previewImage"
-    ).src = "";
+        "cameraInput"
+    ).click();
 
+    toggleAttach();
+}
+
+function showPreview(name) {
+
+    const preview =
+        document.getElementById(
+            "preview"
+        );
+
+    preview.textContent =
+        "Selected: " + name;
+
+    preview.style.display =
+        "block";
 }
 
 
-/* FILE TO BASE64 */
+// =========================================================
+// FILE INPUTS
+// =========================================================
 
-function fileToBase64(file) {
+document.getElementById(
+    "fileInput"
+).onchange =
+function(event) {
 
-    return new Promise(
-        (resolve, reject) => {
+    if(event.target.files.length) {
 
-            const reader =
-                new FileReader();
+        selectedFile =
+            event.target.files[0];
 
-            reader.onload =
-                () => resolve(
-                    reader.result.split(",")[1]
-                );
-
-            reader.onerror =
-                reject;
-
-            reader.readAsDataURL(file);
-
-        }
-    );
-
-}
-
-
-/* SEND */
-
-async function sendMessage() {
-
-    const input =
-        document.getElementById(
-            "messageInput"
+        showPreview(
+            selectedFile.name
         );
+    }
+};
 
-    const button =
-        document.getElementById(
-            "sendButton"
+document.getElementById(
+    "imageInput"
+).onchange =
+function(event) {
+
+    if(event.target.files.length) {
+
+        selectedFile =
+            event.target.files[0];
+
+        showPreview(
+            selectedFile.name
         );
-
-
-    const message =
-        input.value.trim();
-
-
-    if (!message && !selectedFile) {
-
-        return;
-
     }
+};
 
+document.getElementById(
+    "cameraInput"
+).onchange =
+function(event) {
 
-    if (!currentChatId) {
+    if(event.target.files.length) {
 
-        createChat();
+        selectedFile =
+            event.target.files[0];
 
+        showPreview(
+            selectedFile.name
+        );
     }
+};
 
 
-    let imagePreview = null;
+// =========================================================
+// UPLOAD
+// =========================================================
 
-
-    if (
-        selectedFile &&
-        selectedFile.type.startsWith("image/")
-    ) {
-
-        imagePreview =
-            await fileToBase64(
-                selectedFile
-            );
-
-        imagePreview =
-            "data:" +
-            selectedFile.type +
-            ";base64," +
-            imagePreview;
-
-    }
-
-
-    /* USER */
-
-    addMessage(
-        message ||
-        selectedFile.name,
-        "user",
-        imagePreview
-    );
-
-
-    saveMessage(
-        message ||
-        selectedFile.name,
-        "user",
-        imagePreview
-    );
-
-
-    input.value = "";
-
-    button.disabled = true;
-
-    button.textContent = "⏳";
-
+async function uploadFile() {
 
     showThinking();
 
+    const formData =
+        new FormData();
+
+    formData.append(
+        "file",
+        selectedFile
+    );
 
     try {
 
-        let response;
-
-
-        if (selectedFile) {
-
-            const formData =
-                new FormData();
-
-            formData.append(
-                "message",
-                message
+        const response =
+            await fetch(
+                "/upload",
+                {
+                    method: "POST",
+                    body: formData
+                }
             );
-
-            formData.append(
-                "file",
-                selectedFile
-            );
-
-
-            response =
-                await fetch(
-                    "/upload",
-                    {
-                        method: "POST",
-                        body: formData
-                    }
-                );
-
-        } else {
-
-            response =
-                await fetch(
-                    "/chat",
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-
-                        body:
-                            JSON.stringify({
-                                message:
-                                    message
-                            })
-                    }
-                );
-
-        }
-
 
         const data =
             await response.json();
 
+        removeThinking();
+
+        if(data.success) {
+
+            addMessage(
+                data.response,
+                "ovi"
+            );
+
+        } else {
+
+            addMessage(
+                data.error,
+                "ovi"
+            );
+        }
+
+    } catch(error) {
 
         removeThinking();
 
-
-        const reply =
-            data.reply ||
-            "Sorry, I couldn't generate a response.";
-
-
         addMessage(
-            reply,
-            "bot"
+            "File processing failed.",
+            "ovi"
         );
-
-
-        saveMessage(
-            reply,
-            "bot"
-        );
-
-
-    } catch (error) {
-
-        console.error(error);
-
-        removeThinking();
-
-
-        const errorMessage =
-            "Something went wrong. Please make sure Ollama is running.";
-
-
-        addMessage(
-            errorMessage,
-            "bot"
-        );
-
-
-        saveMessage(
-            errorMessage,
-            "bot"
-        );
-
     }
-
-
-    removeAttachment();
-
-    button.disabled = false;
-
-    button.textContent = "➤";
-
-    input.focus();
-
 }
 
 
-/* ENTER */
+// =========================================================
+// KEYBOARD
+// =========================================================
 
 function handleKey(event) {
 
-    if (
+    if(
         event.key === "Enter" &&
         !event.shiftKey
     ) {
@@ -1600,117 +1609,60 @@ function handleKey(event) {
         event.preventDefault();
 
         sendMessage();
-
     }
-
 }
 
 
-/* SETTINGS */
+// =========================================================
+// SETTINGS
+// =========================================================
 
 function openSettings() {
 
     document.getElementById(
         "settingsModal"
-    ).style.display =
-        "flex";
-
+    ).style.display = "flex";
 }
-
 
 function closeSettings() {
 
     document.getElementById(
         "settingsModal"
-    ).style.display =
-        "none";
+    ).style.display = "none";
+}
 
+function setTheme(theme) {
+
+    document.body.className = "";
+
+    if(theme !== "light") {
+
+        document.body.classList.add(
+            theme
+        );
+    }
+
+    localStorage.setItem(
+        "oviTheme",
+        theme
+    );
+
+    closeSettings();
 }
 
 
-/* WINDOW */
+// =========================================================
+// START
+// =========================================================
 
-window.onclick =
-    function(event) {
+const savedTheme =
+    localStorage.getItem(
+        "oviTheme"
+    );
 
-        const modal =
-            document.getElementById(
-                "settingsModal"
-            );
-
-
-        if (event.target === modal) {
-
-            closeSettings();
-
-        }
-
-
-        if (
-            !event.target.closest(
-                ".history-item"
-            )
-        ) {
-
-            closeAllMenus();
-
-        }
-
-
-        if (
-            !event.target.closest(
-                ".attach"
-            )
-        ) {
-
-            document.getElementById(
-                "attachMenu"
-            ).style.display =
-                "none";
-
-        }
-
-    };
-
-
-function closeAllMenus() {
-
-    document
-        .querySelectorAll(
-            ".delete-menu"
-        )
-        .forEach(menu => {
-
-            menu.style.display =
-                "none";
-
-        });
-
+if(savedTheme) {
+    setTheme(savedTheme);
 }
-
-
-/* NEW CHAT */
-
-function newChat() {
-
-    currentChatId = null;
-
-    showWelcome();
-
-    document.getElementById(
-        "messageInput"
-    ).value = "";
-
-    removeAttachment();
-
-    document.getElementById(
-        "messageInput"
-    ).focus();
-
-}
-
-
-/* START */
 
 renderHistory();
 
@@ -1721,303 +1673,9 @@ renderHistory();
 """
 
 
-@app.route("/")
-def home():
-    return render_template_string(HTML)
-
-
-@app.route("/chat", methods=["POST"])
-def chat():
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify({
-            "reply": "No message received."
-        })
-
-    message = data.get(
-        "message",
-        ""
-    ).strip()
-
-    if not message:
-        return jsonify({
-            "reply": "Please type a message."
-        })
-
-    prompt = f"""
-{SYSTEM_PROMPT}
-
-User:
-{message}
-
-Answer the user clearly and helpfully.
-"""
-
-    try:
-
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": CHAT_MODEL,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=300
-        )
-
-        response.raise_for_status()
-
-        result = response.json()
-
-        return jsonify({
-            "reply": result.get(
-                "response",
-                "I couldn't generate a response."
-            )
-        })
-
-    except requests.exceptions.ConnectionError:
-
-        return jsonify({
-            "reply":
-            "Ollama is not running. Please open Ollama."
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "reply":
-            "Error: " + str(e)
-        })
-
-
-@app.route("/upload", methods=["POST"])
-def upload():
-
-    try:
-
-        message = request.form.get(
-            "message",
-            ""
-        ).strip()
-
-        file = request.files.get("file")
-
-
-        if not file:
-
-            return jsonify({
-                "reply": "No file received."
-            })
-
-
-        filename = file.filename or "file"
-
-        file_bytes = file.read()
-
-        content_type = file.content_type or ""
-
-
-        # IMAGE
-
-        if content_type.startswith("image/"):
-
-            encoded = base64.b64encode(file_bytes).decode("utf-8")
-
-
-            prompt = f"""
-{SYSTEM_PROMPT}
-
-The user uploaded an image named "{filename}".
-
-User message:
-{message if message else "Please analyze this image."}
-
-Carefully examine the image and give a useful answer.
-"""
-
-
-            response = requests.post(
-                OLLAMA_URL,
-                json={
-                    "model": VISION_MODEL,
-                    "prompt": prompt,
-                    "images": [encoded],
-                    "stream": False
-                },
-                timeout=300
-            )
-
-
-            response.raise_for_status()
-
-            result = response.json()
-
-
-            return jsonify({
-                "reply":
-                    result.get(
-                        "response",
-                        "I couldn't understand the image."
-                    )
-            })
-
-
-        # TEXT FILES
-
-        if (
-            content_type.startswith("text/")
-            or filename.lower().endswith(
-                (".txt", ".md")
-            )
-        ):
-
-            text = file_bytes.decode(
-                "utf-8",
-                errors="ignore"
-            )
-
-            prompt = f"""
-{SYSTEM_PROMPT}
-
-The user uploaded a document named "{filename}".
-
-Document content:
-{text[:30000]}
-
-User question:
-{message if message else "Please summarize and explain this document."}
-"""
-
-            response = requests.post(
-                OLLAMA_URL,
-                json={
-                    "model": CHAT_MODEL,
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=300
-            )
-
-            response.raise_for_status()
-
-            result = response.json()
-
-            return jsonify({
-                "reply":
-                    result.get(
-                        "response",
-                        "I couldn't understand the document."
-                    )
-            })
-
-
-        # PDF
-
-        if filename.lower().endswith(".pdf"):
-
-            try:
-
-                from PyPDF2 import PdfReader
-
-                temp_path = os.path.join(
-                    os.getcwd(),
-                    "_ovi_temp.pdf"
-                )
-
-                with open(
-                    temp_path,
-                    "wb"
-                ) as f:
-
-                    f.write(file_bytes)
-
-
-                reader = PdfReader(temp_path)
-
-
-                text = ""
-
-                for page in reader.pages:
-
-                    text += (
-                        page.extract_text()
-                        or ""
-                    )
-
-
-                os.remove(temp_path)
-
-
-                prompt = f"""
-{SYSTEM_PROMPT}
-
-The user uploaded a PDF named "{filename}".
-
-PDF content:
-{text[:30000]}
-
-User question:
-{message if message else "Please summarize and explain this PDF."}
-"""
-
-
-                response = requests.post(
-                    OLLAMA_URL,
-                    json={
-                        "model": CHAT_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=300
-                )
-
-
-                response.raise_for_status()
-
-                result = response.json()
-
-
-                return jsonify({
-                    "reply":
-                        result.get(
-                            "response",
-                            "I couldn't understand the PDF."
-                        )
-                })
-
-
-            except ImportError:
-
-                return jsonify({
-                    "reply":
-                    "PDF support needs PyPDF2. Run: pip install PyPDF2"
-                })
-
-
-        return jsonify({
-            "reply":
-            f"I received {filename}, but this file type is not supported yet."
-        })
-
-
-    except requests.exceptions.ConnectionError:
-
-        return jsonify({
-            "reply":
-            "Ollama is not running. Please open Ollama."
-        })
-
-
-    except Exception as e:
-
-        return jsonify({
-            "reply":
-            "Upload error: " + str(e)
-        })
-
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
 
