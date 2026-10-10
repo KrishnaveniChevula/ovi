@@ -1185,22 +1185,48 @@ function renderHistory() {
                     loadConversation(index);
                 };
 
-            item.oncontextmenu =
-                function(event) {
+            item.oncontextmenu = function(event) {
+    event.preventDefault();
 
-                    event.preventDefault();
+    // Remove any existing context menu
+    document.querySelectorAll(".context-menu").forEach(menu => menu.remove());
 
-                    if(confirm("Delete this chat?")) {
+    const menu = document.createElement("div");
+    menu.className = "context-menu";
+    menu.textContent = "🗑️ Delete";
 
-                        conversations.splice(index, 1);
+    menu.style.cssText = `
+        position: fixed;
+        left: ${event.clientX}px;
+        top: ${event.clientY}px;
+        background: #222;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        z-index: 9999;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    `;
 
-                        saveHistory();
+    menu.onclick = function() {
+        conversations.splice(index, 1);
+        saveHistory();
+        menu.remove();
+        newChat();
+    };
 
-                        newChat();
-                    }
-                };
+    document.body.appendChild(menu);
 
-            history.appendChild(item);
+    // Close the menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener("click", function closeMenu() {
+            menu.remove();
+            document.removeEventListener("click", closeMenu);
+        }, { once: true });
+    }, 0);
+};
+
+history.appendChild(item);
         }
     );
 }
