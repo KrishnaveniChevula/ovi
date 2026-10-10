@@ -911,10 +911,35 @@ textarea {
     }
 }
 
+.message h1,
+.message h2,
+.message h3 {
+    font-weight: 700;
+    margin: 18px 0 10px;
+}
 
+.message p {
+    margin: 8px 0;
+    line-height: 1.7;
+}
+
+.message ul,
+.message ol {
+    padding-left: 24px;
+    margin: 10px 0;
+}
+
+.message li {
+    margin: 6px 0;
+}
+
+.message strong {
+    font-weight: 700;
+}
 
 </style>
-
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 </head>
 
 <body>
@@ -1253,7 +1278,13 @@ function addMessage(
 
     bubble.className = "message";
 
+    if (sender === "ovi") {
+    bubble.innerHTML = DOMPurify.sanitize(
+        marked.parse(text)
+    );
+} else {
     bubble.textContent = text;
+}
 
     row.appendChild(bubble);
 
