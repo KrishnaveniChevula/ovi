@@ -46,7 +46,7 @@ Rules:
 4. If the user speaks Hindi, reply in Hindi.
 5. If the user speaks English, reply in English.
 6. Do not pretend to be a doctor, lawyer, or government officer.
-7. For important information, tell the user to verify with an official source.
+7. Mention official-source verification only when it is genuinely necessary for the user's question. Do not add generic verification reminders to ordinary answers.
 8. Never invent official information.
 9. Be friendly and concise.
 10. Give step-by-step instructions when useful.
@@ -77,6 +77,8 @@ Reply in the language the user uses.
 - Do not add unsolicited website links or recommendations for official documentation.
 - Answer the user's actual question directly.
 - Recommend official sources only when they are relevant to the user's question or needed to verify important information.
+- Never add generic reminders such as "Please verify this information with official maps or geographic sources if needed."
+- Do not mention maps or geographic sources unless the user asks a geography or navigation question where they are relevant.
 """
 
 # =========================================================
@@ -1168,6 +1170,7 @@ localStorage.getItem("oviHistory") || "[]"
 );
 
 let currentMessages = [];
+let activeConversationIndex = null;
 
 
 // =========================================================
@@ -1183,6 +1186,37 @@ function saveHistory() {
 
     renderHistory();
 }
+
+function saveCurrentChat() {
+    if (currentMessages.length === 0) return;
+
+    // Reuse the conversation if it is already active
+    if (activeConversationIndex !== null &&
+        conversations[activeConversationIndex]) {
+
+        conversations[activeConversationIndex].messages =
+            [...currentMessages];
+
+    } else {
+        const firstMessage = currentMessages.find(
+            message => message.sender === "user"
+        );
+
+        const title = firstMessage
+            ? firstMessage.text.slice(0, 35)
+            : "New conversation";
+
+        conversations.unshift({
+            title: title,
+            messages: [...currentMessages]
+        });
+
+        activeConversationIndex = 0;
+    }
+
+    saveHistory();
+}
+
 
 function renderHistory() {
 
@@ -1253,30 +1287,30 @@ history.appendChild(item);
     );
 }
 
+```javascript
 function loadConversation(index) {
+    activeConversationIndex = index;
 
-    currentMessages =
-        conversations[index].messages || [];
+    currentMessages = [
+        ...(conversations[index].messages || [])
+    ];
 
-    const chat =
-        document.getElementById("chat");
+    const chat = document.getElementById("chat");
+    if (!chat) return;
 
     chat.innerHTML = "";
 
-    currentMessages.forEach(
-        message => {
+    const welcome = document.getElementById("welcome");
+    if (welcome) welcome.remove();
 
-            addMessage(
-                message.text,
-                message.sender,
-                false
-            );
-
-        }
-    );
+    currentMessages.forEach(message => {
+        addMessage(message.text, message.sender, false);
+    });
 }
+```
 function newChat() {
     currentMessages = [];
+    activeConversationIndex = null;
 
     const chat = document.getElementById("chat");
     if (chat) {
@@ -1479,21 +1513,17 @@ async function sendMessage() {
         );
     }
 
-    if(
-        currentMessages.length > 0 &&
-        currentMessages.length <= 2
-    ) {
+   
+saveCurrentChat();
 
-        saveCurrentChat();
-
-        currentMessages = [];
-    }
 }
 
 
 // =========================================================
 // VOICE
 // =========================================================
+
+let autoSendVoice = true;
 
 async function toggleVoice() {
 
@@ -1530,27 +1560,18 @@ async function startRecording() {
                 }
             };
 
-        mediaRecorder.onstop =
-            async function() {
+        
+mediaRecorder.onstop = async function() {
 
-                stream
-                    .getTracks()
-                    .forEach(
-                        track =>
-                            track.stop()
-                    );
+    stream.getTracks().forEach(track => track.stop());
 
-                const audioBlob =
-                    new Blob(
-                        audioChunks,
-                        {
-                            type: "audio/webm"
-                        }
-                    );
-                    showThinking("Processing your audio… Please wait");
+    const audioBlob = new Blob(audioChunks, {
+        type: "audio/webm"
+    });
 
-                await sendAudio(audioBlob);
-            };
+    await sendAudio(audioBlob, autoSendVoice);
+};
+
 
         mediaRecorder.start();
 
@@ -1597,64 +1618,40 @@ function stopRecording() {
     button.textContent = "🎤";
 }
 
+
 async function sendAudio(audioBlob) {
 
-    const button =
-        document.getElementById(
-            "voiceButton"
-        );
+    const button = document.getElementById("voiceButton");
 
     button.textContent = "⏳";
+    showThinking();
 
-    const formData =
-        new FormData();
-
-    formData.append(
-        "audio",
-        audioBlob,
-        "voice.webm"
-    );
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "voice.webm");
 
     try {
+        const response = await fetch("/voice", {
+            method: "POST",
+            body: formData
+        });
 
-        const response =
-            await fetch(
-                "/voice",
-                {
-                    method: "POST",
-                    body: formData
-                }
-            );
+        const data = await response.json();
 
-        const data =
-            await response.json();
+        removeThinking();
 
-        if(data.success) {
+        if (data.success) {
+            const input = document.getElementById("messageInput");
 
-            const input =
-                document.getElementById(
-                    "messageInput"
-                );
-
-            input.value =
-                data.text;
-
+            input.value = data.text;
             input.focus();
 
         } else {
-
-            alert(
-                "Voice error: " +
-                data.error
-            );
+            addMessage("Voice error: " + data.error, "ovi");
         }
 
-    } catch(error) {
-
-        alert(
-            "Could not process your voice."
-        );
-
+    } catch (error) {
+        removeThinking();
+        addMessage("Could not process your voice.", "ovi");
         console.log(error);
     }
 
