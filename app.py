@@ -860,6 +860,46 @@ textarea {
     }
 }
 
+/* Mobile chat history drawer */
+.history-toggle {
+    display: none;
+}
+
+@media screen and (max-width: 700px) {
+    .history-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .sidebar.mobile-open {
+        display: flex !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(280px, 85vw);
+        height: 100vh;
+        height: 100dvh;
+        box-sizing: border-box;
+        overflow-y: auto;
+        z-index: 1000;
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .topbar {
+        gap: 10px;
+    }
+}
+
+
 
 </style>
 
@@ -892,6 +932,12 @@ CHAT HISTORY
 <div class="topbar">
 
 <div class="top-title">
+<button
+    class="history-toggle"
+    onclick="toggleHistory()"
+    aria-label="Open chat history">
+    ☰ History
+</button>
 OVI
 </div>
 
@@ -1778,6 +1824,35 @@ if(savedTheme) {
 }
 
 renderHistory();
+
+function toggleHistory() {
+    const sidebar = document.querySelector(".sidebar");
+
+    if (sidebar) {
+        sidebar.classList.toggle("mobile-open");
+    }
+}
+
+function closeHistory() {
+    const sidebar = document.querySelector(".sidebar");
+
+    if (sidebar) {
+        sidebar.classList.remove("mobile-open");
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    const history = document.getElementById("history");
+
+    if (history) {
+        history.addEventListener("click", function (event) {
+            if (event.target.closest(".history-item")) {
+                closeHistory();
+            }
+        });
+    }
+});
+
 
 </script>
 
