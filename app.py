@@ -920,11 +920,55 @@ textarea {
         gap: 10px;
     }
 }
+.message h1,
+.message h2,
+.message h3,
+.message h4,
+.message h5,
+.message h6 {
+    font-weight: 700;
+}
 
 
+/* OVI answers: no bubble or background */
+.message.ovi,
+.message.assistant,
+.message.bot {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+}
 
+/* OVI answers without a bubble */
+.ovi-answer {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    width: 100%;
+    color: inherit;
+}
+
+/* Keep formatted answers readable */
+.ovi-answer p {
+    margin: 0 0 12px;
+}
+
+.ovi-answer h1,
+.ovi-answer h2,
+.ovi-answer h3,
+.ovi-answer h4 {
+    font-weight: 700;
+    margin: 16px 0 8px;
+}
 </style>
-
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
 </head>
 
 <body>
@@ -1196,7 +1240,10 @@ function addMessage(text, sender, save = true) {
     row.className = "message-row " + sender;
 
     const bubble = document.createElement("div");
-    bubble.className = "message";
+    bubble.className =
+    (sender === "ovi" || sender === "assistant" || sender === "bot")
+        ? "message ovi-answer"
+        : "message";
 
     // Render OVI responses as formatted Markdown
     if (sender === "ovi" || sender === "assistant" || sender === "bot") {
