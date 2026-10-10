@@ -1,0 +1,320 @@
+* {
+    box-sizing: border-box;
+}
+
+
+body {
+
+    margin: 0;
+
+    font-family: Arial, sans-serif;
+
+    background: #eef3ed;
+
+    color: #222;
+}
+
+
+.container {
+
+    width: 600px;
+
+    max-width: 92%;
+
+    margin: 60px auto;
+
+    background: white;
+
+    padding: 30px;
+
+    border-radius: 25px;
+
+    box-shadow:
+        0 10px 30px rgba(0,0,0,0.08);
+}
+
+
+h1 {
+
+    text-align: center;
+
+    font-size: 50px;
+
+    margin-bottom: 5px;
+}
+
+
+.container > p {
+
+    text-align: center;
+
+    color: #666;
+}
+
+
+/* CHAT AREA */
+
+#chat {
+
+    height: 500px;
+
+    overflow-y: auto;
+
+    margin: 30px 0;
+
+    padding: 15px;
+
+    background: #f7f9f6;
+
+    border-radius: 15px;
+}
+
+
+/* USER MESSAGE */
+
+.user-message {
+
+    width: fit-content;
+
+    max-width: 75%;
+
+    margin: 12px 0 12px auto;
+
+    padding: 12px 16px;
+
+    background: #dcebd9;
+
+    border-radius: 18px;
+
+    line-height: 1.5;
+
+    overflow-wrap: anywhere;
+}
+
+
+/* OVI RESPONSE */
+
+.ai-message {
+
+    width: 100%;
+
+    margin: 18px 0;
+
+    padding: 0;
+
+    background: transparent;
+
+    border-radius: 0;
+
+    line-height: 1.7;
+
+    color: #222;
+
+    overflow-wrap: anywhere;
+}
+
+
+/* HEADINGS */
+
+.ai-message h1,
+.ai-message h2,
+.ai-message h3 {
+
+    margin-top: 18px;
+
+    margin-bottom: 8px;
+}
+
+
+/* LISTS */
+
+.ai-message ul,
+.ai-message ol {
+
+    margin-top: 8px;
+
+    margin-bottom: 12px;
+
+    padding-left: 25px;
+}
+
+
+.ai-message li {
+
+    margin: 6px 0;
+}
+
+
+/* BOLD */
+
+.ai-message strong {
+
+    font-weight: 700;
+}
+
+
+/* IMAGE */
+
+.uploaded-image {
+
+    max-width: 300px;
+
+    max-height: 300px;
+
+    border-radius: 12px;
+
+    display: block;
+}
+
+
+/* THINKING DOTS */
+
+#thinking {
+
+    display: flex;
+
+    gap: 5px;
+
+    align-items: center;
+
+    margin: 15px 0;
+}
+
+
+.dot {
+
+    width: 7px;
+
+    height: 7px;
+
+    background: #777;
+
+    border-radius: 50%;
+
+    animation: thinking 1.2s infinite;
+}
+
+
+.dot:nth-child(2) {
+
+    animation-delay: 0.2s;
+}
+
+
+.dot:nth-child(3) {
+
+    animation-delay: 0.4s;
+}
+
+
+@keyframes thinking {
+
+    0%, 60%, 100% {
+
+        opacity: 0.3;
+
+    }
+
+    30% {
+
+        opacity: 1;
+
+    }
+
+}
+
+
+/* SUGGESTIONS */
+
+.suggestions {
+
+    display: flex;
+
+    gap: 8px;
+
+    flex-wrap: wrap;
+
+    margin-bottom: 15px;
+}
+
+
+.suggestions button {
+
+    padding: 9px 12px;
+
+    border: 1px solid #ddd;
+
+    background: white;
+
+    border-radius: 20px;
+
+    cursor: pointer;
+}
+
+
+/* INPUT */
+
+.chat-box {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+}
+
+
+.icon-button {
+
+    cursor: pointer;
+
+    font-size: 20px;
+}
+
+
+.chat-box input[type="text"] {
+
+    flex: 1;
+
+    padding: 14px;
+
+    border: 1px solid #ddd;
+
+    border-radius: 12px;
+
+    outline: none;
+}
+
+
+.chat-box button {
+
+    padding: 14px 20px;
+
+    border: none;
+
+    border-radius: 12px;
+
+    cursor: pointer;
+
+    background: #222;
+
+    color: white;
+}
+
+
+/* CLEAR */
+
+.clear-button {
+
+    display: block;
+
+    margin: 15px auto 0;
+
+    border: none;
+
+    background: transparent;
+
+    color: #777;
+
+    cursor: pointer;
+}

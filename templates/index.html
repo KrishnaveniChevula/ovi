@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>OVI - AI Assistant</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+
+
+<body>
+
+
+<div class="container">
+
+
+    <h1>OVI</h1>
+
+    <p>
+        AI that helps with real life.
+    </p>
+
+
+    <!-- CHAT -->
+    <div id="chat">
+
+        <div class="ai-message">
+
+            <strong>Hi! I'm OVI.</strong>
+
+            <br>
+
+            Tell me what's going on,
+            and I'll help you figure out what to do next.
+
+        </div>
+
+    </div>
+
+
+    <!-- SUGGESTIONS -->
+    <div class="suggestions">
+
+        <button onclick="useSuggestion(
+            'How can I apply for a scholarship?'
+        )">
+            🎓 Scholarship help
+        </button>
+
+
+        <button onclick="useSuggestion(
+            'Explain this topic simply'
+        )">
+            📚 Explain a topic
+        </button>
+
+
+        <button onclick="useSuggestion(
+            'I received a suspicious message'
+        )">
+            🛡️ Check a message
+        </button>
+
+    </div>
+
+
+    <!-- INPUT -->
+    <div class="chat-box">
+
+
+        <!-- CAMERA -->
+        <label class="icon-button">
+
+            📷
+
+            <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                hidden
+            >
+
+        </label>
+
+
+        <!-- IMAGE -->
+        <label class="icon-button">
+
+            🖼️
+
+            <input
+                type="file"
+                accept="image/*"
+                hidden
+            >
+
+        </label>
+
+
+        <!-- DOCUMENT -->
+        <label class="icon-button">
+
+            📎
+
+            <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                hidden
+            >
+
+        </label>
+
+
+        <input
+            id="messageInput"
+            type="text"
+            placeholder="Tell me what's going on..."
+        >
+
+
+        <button onclick="sendMessage()">
+            Send
+        </button>
+
+
+    </div>
+
+
+    <button
+        class="clear-button"
+        onclick="clearChat()"
+    >
+        Clear chat
+    </button>
+
+
+</div>
+
+
+<script src="{{ url_for('static', filename='script.js') }}">
+</script>
+
+
+</body>
+
+</html>

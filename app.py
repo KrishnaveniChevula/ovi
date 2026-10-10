@@ -911,35 +911,10 @@ textarea {
     }
 }
 
-.message h1,
-.message h2,
-.message h3 {
-    font-weight: 700;
-    margin: 18px 0 10px;
-}
 
-.message p {
-    margin: 8px 0;
-    line-height: 1.7;
-}
-
-.message ul,
-.message ol {
-    padding-left: 24px;
-    margin: 10px 0;
-}
-
-.message li {
-    margin: 6px 0;
-}
-
-.message strong {
-    font-weight: 700;
-}
 
 </style>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+
 </head>
 
 <body>
@@ -1199,112 +1174,49 @@ function loadConversation(index) {
     );
 }
 
-function saveCurrentChat() {
 
-    if(!currentMessages.length) {
-        return;
-    }
+function addMessage(text, sender, save = true) {
+    const welcome = document.getElementById("welcome");
 
-    const firstUser =
-        currentMessages.find(
-            m => m.sender === "user"
-        );
-
-    const title =
-        firstUser
-        ? firstUser.text.substring(0,35)
-        : "New Chat";
-
-    conversations.unshift({
-        title: title,
-        messages: currentMessages
-    });
-
-    if(conversations.length > 30) {
-        conversations.pop();
-    }
-
-    saveHistory();
-}
-
-
-// =========================================================
-// NEW CHAT
-// =========================================================
-
-function newChat() {
-
-    currentMessages = [];
-
-    document.getElementById("chat").innerHTML = `
-
-        <div class="welcome" id="welcome">
-
-            <h1>Hi, I'm OVI</h1>
-
-            <p>AI that helps with real life.</p>
-
-        </div>
-
-    `;
-}
-
-
-// =========================================================
-// MESSAGE
-// =========================================================
-
-function addMessage(
-    text,
-    sender,
-    save = true
-) {
-
-    const welcome =
-        document.getElementById("welcome");
-
-    if(welcome) {
+    if (welcome) {
         welcome.remove();
     }
 
-    const row =
-        document.createElement("div");
+    const row = document.createElement("div");
+    row.className = "message-row " + sender;
 
-    row.className =
-        "message-row " + sender;
-
-    const bubble =
-        document.createElement("div");
-
+    const bubble = document.createElement("div");
     bubble.className = "message";
 
-    if (sender === "ovi") {
-    bubble.innerHTML = DOMPurify.sanitize(
-        marked.parse(text)
-    );
-} else {
-    bubble.textContent = text;
-}
+    // Render OVI responses as formatted Markdown
+    if (sender === "ovi" || sender === "assistant" || sender === "bot") {
+        if (
+            typeof marked !== "undefined" &&
+            typeof DOMPurify !== "undefined"
+        ) {
+            bubble.innerHTML = DOMPurify.sanitize(
+                marked.parse(text)
+            );
+        } else {
+            bubble.textContent = text;
+            console.error("Markdown libraries are not loaded.");
+        }
+    } else {
+        // Keep user messages as plain text
+        bubble.textContent = text;
+    }
 
     row.appendChild(bubble);
 
-    document
-        .getElementById("chat")
-        .appendChild(row);
+    const chat = document.getElementById("chat");
+    chat.appendChild(row);
+    chat.scrollTop = chat.scrollHeight;
 
-    const chat =
-        document.getElementById("chat");
-
-    chat.scrollTop =
-        chat.scrollHeight;
-
-    if(save) {
-
+    if (save) {
         currentMessages.push({
             sender: sender,
             text: text
         });
-
     }
 }
 
