@@ -1618,12 +1618,11 @@ function stopRecording() {
     button.textContent = "🎤";
 }
 
-
-async function sendAudio(audioBlob) {
-
+```javascript
+async function sendAudio(audioBlob, autoSend = true) {
     const button = document.getElementById("voiceButton");
 
-    button.textContent = "⏳";
+    if (button) button.textContent = "⏳";
     showThinking();
 
     const formData = new FormData();
@@ -1636,27 +1635,36 @@ async function sendAudio(audioBlob) {
         });
 
         const data = await response.json();
-
         removeThinking();
 
-        if (data.success) {
-            const input = document.getElementById("messageInput");
+        if (!response.ok || !data.success) {
+            addMessage(
+                "Voice error: " + (data.error || "Could not recognize speech."),
+                "ovi"
+            );
+            return;
+        }
 
-            input.value = data.text;
-            input.focus();
+        const input = document.getElementById("messageInput");
+        input.value = data.text || "";
+        input.focus();
 
-        } else {
-            addMessage("Voice error: " + data.error, "ovi");
+        // Automatically send recognized speech to OVI
+        if (autoSend && input.value.trim()) {
+            if (button) button.textContent = "🎤";
+            await sendMessage();
         }
 
     } catch (error) {
         removeThinking();
         addMessage("Could not process your voice.", "ovi");
-        console.log(error);
-    }
+        console.error("Voice input error:", error);
 
-    button.textContent = "🎤";
+    } finally {
+        if (button) button.textContent = "🎤";
+    }
 }
+```
 
 
 // =========================================================
