@@ -16,7 +16,7 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.5-flash-lite"
 
 # =========================================================
 # OVI SYSTEM PROMPT
@@ -57,6 +57,64 @@ Rules:
 # =========================================================
 
 def ask_gemini(prompt, uploaded_file=None):
+    if not client:
+        raise Exception(
+            "Gemini API key is missing. Check your environment variable."
+        )
+
+    import time
+
+    for attempt in range(3):
+        try:
+            contents = [SYSTEM_PROMPT, prompt]
+
+            if uploaded_file is not None:
+                contents.append(uploaded_file)
+
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=contents
+            )
+
+            answer = (response.text or "").strip()
+
+            if not answer:
+                raise Exception("Gemini returned an empty response.")
+
+            return answer
+
+        except Exception as e:
+            error = str(e)
+            print(f"Gemini attempt {attempt + 1}: {error}")
+
+            temporary_error = any(
+                code in error
+                for code in [
+                    "503",
+                    "UNAVAILABLE",
+                    "429",
+                    "RESOURCE_EXHAUSTED",
+                    "500",
+                    "INTERNAL"
+                ]
+            )
+
+            if temporary_error and attempt < 2:
+                time.sleep(2 ** (attempt + 1))
+                continue
+
+            if "503" in error or "UNAVAILABLE" in error:
+                raise Exception(
+                    "Gemini is busy right now. Please wait a minute "
+                    "and try again."
+                )
+
+            if "429" in error or "RESOURCE_EXHAUSTED" in error:
+                raise Exception(
+                    "Gemini usage limit reached. Please try again later."
+                )
+
+            raise Exception(error)
     if not client:
         raise Exception("GEMINI_API_KEY is not configured.")
 
@@ -747,6 +805,61 @@ textarea {
         max-width: 88%;
     }
 }
+
+/* OVI MOBILE LAYOUT FIX */
+@media screen and (max-width: 700px) {
+    html,
+    body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    .app,
+    .main,
+    .chat {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .chat {
+        padding: 12px;
+    }
+
+    .message {
+        max-width: 90%;
+        overflow-wrap: anywhere;
+    }
+
+    .input-area,
+    .input-box {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    textarea,
+    input {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0;
+        font-size: 16px;
+    }
+
+    button {
+        max-width: 100%;
+    }
+
+    img,
+    video,
+    canvas {
+        max-width: 100%;
+        height: auto;
+    }
+}
+
 
 </style>
 
