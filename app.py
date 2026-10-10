@@ -72,6 +72,11 @@ Format Markdown and code blocks properly.
 Do not invent facts. Clearly state when you are unsure.
 Use the conversation history to understand follow-up questions.
 Reply in the language the user uses.
+- Do not add generic AI disclaimers or statements such as "I am an AI assistant, not a formal programming instructor."
+- Do not include unnecessary disclaimers about being an AI.
+- Do not add unsolicited website links or recommendations for official documentation.
+- Answer the user's actual question directly.
+- Recommend official sources only when they are relevant to the user's question or needed to verify important information.
 """
 
 # =========================================================
@@ -966,6 +971,23 @@ textarea {
     font-weight: 700;
     margin: 16px 0 8px;
 }
+
+/* Send button click animation */
+button[onclick="sendMessage()"] {
+    transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+button[onclick="sendMessage()"]:active {
+    transform: scale(0.92);
+    opacity: 0.8;
+}
+
+/* Processing state */
+button[onclick="sendMessage()"]:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
@@ -1253,6 +1275,24 @@ function loadConversation(index) {
         }
     );
 }
+function newChat() {
+    currentMessages = [];
+
+    const chat = document.getElementById("chat");
+    if (chat) {
+        chat.innerHTML = "";
+    }
+
+    const welcome = document.getElementById("welcome");
+    if (welcome) {
+        welcome.style.display = "block";
+    }
+
+    const input = document.getElementById("messageInput");
+    if (input) {
+        input.value = "";
+    }
+}
 
 
 function addMessage(text, sender, save = true) {
@@ -1507,6 +1547,7 @@ async function startRecording() {
                             type: "audio/webm"
                         }
                     );
+                    showThinking("Processing your audio… Please wait");
 
                 await sendAudio(audioBlob);
             };
