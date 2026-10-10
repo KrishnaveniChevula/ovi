@@ -50,6 +50,18 @@ Rules:
 8. Never invent official information.
 9. Be friendly and concise.
 10. Give step-by-step instructions when useful.
+
+FORMATTING RULES:
+- Use clear, bold headings for main topics.
+- Use bullet points for key information.
+- Use numbered lists for step-by-step instructions.
+- Include simple examples whenever useful.
+- Keep paragraphs short and easy to understand.
+- Bold important terms and key takeaways.
+- Leave blank lines between sections.
+- Use tables for comparisons when helpful.
+- Avoid long paragraphs and unnecessary information.
+- Respond in the user's language.
 """
 
 # =========================================================
