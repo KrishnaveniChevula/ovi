@@ -1164,6 +1164,8 @@ let audioChunks = [];
 
 let isRecording = false;
 
+let autoSendVoice = true;
+
 let conversations =
 JSON.parse(
 localStorage.getItem("oviHistory") || "[]"
@@ -1287,7 +1289,6 @@ history.appendChild(item);
     );
 }
 
-```javascript
 function loadConversation(index) {
     activeConversationIndex = index;
 
@@ -1307,7 +1308,7 @@ function loadConversation(index) {
         addMessage(message.text, message.sender, false);
     });
 }
-```
+
 function newChat() {
     currentMessages = [];
     activeConversationIndex = null;
@@ -1523,13 +1524,14 @@ saveCurrentChat();
 // VOICE
 // =========================================================
 
-let autoSendVoice = true;
+
 
 async function toggleVoice() {
 
     if(isRecording) {
         stopRecording();
     } else {
+    let autoSendVoice = true;
         startRecording();
     }
 }
@@ -1618,7 +1620,7 @@ function stopRecording() {
     button.textContent = "🎤";
 }
 
-```javascript
+
 async function sendAudio(audioBlob, autoSend = true) {
     const button = document.getElementById("voiceButton");
 
@@ -1664,7 +1666,7 @@ async function sendAudio(audioBlob, autoSend = true) {
         if (button) button.textContent = "🎤";
     }
 }
-```
+
 
 
 // =========================================================
