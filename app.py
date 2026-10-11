@@ -990,6 +990,12 @@ button[onclick="sendMessage()"]:disabled {
     cursor: wait;
 }
 
+@media (min-width: 701px) {
+    .logo button {
+        display: none;
+    }
+} 
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
@@ -1001,8 +1007,13 @@ button[onclick="sendMessage()"]:disabled {
 
 <aside class="sidebar">
 
-<div class="logo">
-OVI
+<div class="logo" style="display:flex; justify-content:space-between; align-items:center;">
+    OVI
+    <button onclick="closeHistory()"
+        style="border:none; background:transparent; color:var(--text); font-size:22px; cursor:pointer;"
+        aria-label="Close chat history">
+        ✕
+    </button>
 </div>
 
 <button class="new-chat" onclick="newChat()">
